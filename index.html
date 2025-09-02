@@ -23,6 +23,7 @@
             --history-color-2: #00AA00;    /* Зеленый для точки 0.50s */
             --history-color-3: #0000FF;    /* Синий для точки 0.75s */
             --history-color-4: #FF00FF;    /* Фиолетовый для точки 1.00s */
+            --delete-color: #ff4757;       /* Цвет для кнопки удаления */
         }
         
         body {
@@ -206,6 +207,28 @@
             border: 1px solid #ddd;
         }
         
+        .delete-btn {
+            background-color: var(--delete-color);
+            padding: 8px 16px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        
+        .delete-btn:hover {
+            background-color: #ff2e43;
+        }
+        
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .history-title {
+            margin: 0;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -222,6 +245,11 @@
             }
             
             .history-legend {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .history-header {
                 flex-direction: column;
                 gap: 10px;
             }
@@ -275,7 +303,10 @@
         </div>
         
         <div class="history-section" id="history-section">
-            <h3 id="history-title">История измерений (последние 14 сеансов)</h3>
+            <div class="history-header">
+                <h3 id="history-title">История измерений (последние 14 сеансов)</h3>
+                <button id="deleteLastBtn" class="delete-btn" style="display: none;">Удалить последнюю запись</button>
+            </div>
             <canvas id="history-graph" width="800" height="400"></canvas>
             <div class="history-legend">
                 <span><i class="color-box" style="background: var(--history-color-1);"></i> <span>0.25 сек</span></span>
@@ -314,6 +345,7 @@
         const historyCanvas = document.getElementById('history-graph');
         const historyCtx = historyCanvas.getContext('2d');
         const historyLegend = document.querySelector('.history-legend');
+        const deleteLastBtn = document.getElementById('deleteLastBtn');
 
         let audioContext;
         let analyser;
@@ -341,6 +373,7 @@
                 console.error('Ошибка загрузки истории:', e);
                 measurementHistory = [];
             }
+            updateDeleteButtonVisibility();
         }
 
         // Сохранение истории в localStorage
@@ -349,6 +382,38 @@
                 localStorage.setItem('measurementHistory', JSON.stringify(measurementHistory));
             } catch (e) {
                 console.error('Ошибка сохранения истории:', e);
+            }
+            updateDeleteButtonVisibility();
+        }
+
+        // Обновление видимости кнопки удаления
+        function updateDeleteButtonVisibility() {
+            if (measurementHistory.length > 0) {
+                deleteLastBtn.style.display = 'block';
+            } else {
+                deleteLastBtn.style.display = 'none';
+                historySection.style.display = 'none';
+            }
+        }
+
+        // Удаление последней записи
+        function deleteLastRecord() {
+            if (measurementHistory.length > 0) {
+                measurementHistory.pop();
+                saveHistory();
+                
+                if (measurementHistory.length > 0) {
+                    drawHistoryGraph();
+                } else {
+                    historySection.style.display = 'none';
+                }
+                
+                // Показываем сообщение об успешном удалении
+                const t = translations[currentLanguage];
+                statusElement.textContent = t.lastRecordDeleted || "Последняя запись удалена";
+                setTimeout(() => {
+                    statusElement.textContent = t.readyStatus;
+                }, 2000);
             }
         }
 
@@ -419,7 +484,9 @@
                 timeLabel: "Время (секунды)",
                 intensityLabel: "Нормированная интенсивность",
                 dateLabel: "Дата и время измерений",
-                intensityHistoryLabel: "Интенсивность"
+                intensityHistoryLabel: "Интенсивность",
+                deleteButton: "Удалить последнюю запись",
+                lastRecordDeleted: "Последняя запись удалена"
             },
             en: {
                 title: "Sound Intensity Analysis with Background Correction",
@@ -464,7 +531,9 @@
                 timeLabel: "Time (seconds)",
                 intensityLabel: "Normalized intensity",
                 dateLabel: "Date and time of measurements",
-                intensityHistoryLabel: "Intensity"
+                intensityHistoryLabel: "Intensity",
+                deleteButton: "Delete last record",
+                lastRecordDeleted: "Last record deleted"
             },
             he: {
                 title: "ניתוח עוצמת קול עם תיקון רקע",
@@ -509,7 +578,9 @@
                 timeLabel: "זמן (שניות)",
                 intensityLabel: "עוצמה מנורמלת",
                 dateLabel: "תאריך ושעה של המדידות",
-                intensityHistoryLabel: "עוצמה"
+                intensityHistoryLabel: "עוצמה",
+                deleteButton: "מחק רשומה אחרונה",
+                lastRecordDeleted: "הרשומה האחרונה נמחקה"
             }
         };
 
@@ -544,6 +615,7 @@
             document.getElementById('legend-start').textContent = t.legendStart;
             document.getElementById('legend-end').textContent = t.legendEnd;
             document.getElementById('legend-cutoff').textContent = t.legendCutoff;
+            deleteLastBtn.textContent = t.deleteButton;
             
             // Обновляем статус, если не идет запись
             if (!isRecording) {
@@ -817,92 +889,403 @@
                     }
                 }
                 
-                // Добавляем в историю
-                if (startTime > 0) {
+                // Добавляем в истории
+                if (startTime > 0 && cutoffIntensities.length > 0) {
                     addToHistory(startTime, endTime, cutoffIntensities);
-                }
-                
-                // Показываем результаты анализа
-                showResults(startTime, endTime, cutoffIntensities);
-                
-                graphTitle.style.display = 'block';
-                drawGraphWithBackground(
-                    originalSignal, 
-                    backgroundSignal, 
-                    normalizedIntegral,
-                    timeStep, 
-                    startTime, 
-                    endTime, 
-                    cutoffTimes
-                );
-                
-                // Показываем график истории
-                if (measurementHistory.length > 0) {
-                    historySection.style.display = 'block';
                     drawHistoryGraph();
                 }
                 
-                statusElement.textContent = translations[currentLanguage].completeStatus;
-            } catch (error) {
-                console.error('Ошибка при обработке данных:', error);
-                statusElement.textContent = translations[currentLanguage].errorAnalysis || "Ошибка анализа данных";
-            }
-        }
-
-        function showResults(startTime, endTime, cutoffIntensities) {
-            resultsElement.style.display = 'block';
-            const t = translations[currentLanguage];
-            
-            if (startTime > 0) {
-                startTimeResult.textContent = `${t.startTimeResult} ${startTime.toFixed(2)} ${t.seconds}`;
-            } else {
-                startTimeResult.textContent = `${t.startTimeResult} ${t.notDetected}`;
-            }
-            
-            if (endTime > 0) {
-                endTimeResult.textContent = `${t.endTimeResult} ${endTime.toFixed(2)} ${t.seconds}`;
-            } else {
-                endTimeResult.textContent = `${t.endTimeResult} ${t.notDetected}`;
-            }
-            
-            if (cutoffIntensities && cutoffIntensities.length > 0) {
+                drawGraph(originalSignal, backgroundSignal, normalizedIntegral, startTime, endTime, cutoffTimes);
+                
+                // Обновляем результаты
+                const t = translations[currentLanguage];
+                startTimeResult.textContent = `${t.startTimeResult} ${startTime > 0 ? startTime.toFixed(3) + " " + t.seconds : t.notDetected}`;
+                endTimeResult.textContent = `${t.endTimeResult} ${endTime > 0 ? endTime.toFixed(3) + " " + t.seconds : t.notDetected}`;
+                
                 let intensityText = `${t.intensityResult} `;
-                for (let i = 0; i < cutoffIntensities.length; i++) {
-                    if (cutoffIntensities[i] >= 0) {
-                        intensityText += `${cutoffIntensities[i].toFixed(4)}`;
-                    } else {
-                        intensityText += `${t.notAvailable}`;
-                    }
-                    if (i < cutoffIntensities.length - 1) {
-                        intensityText += ", ";
-                    }
+                if (cutoffIntensities.length > 0) {
+                    intensityText += cutoffIntensities.map((intensity, index) => 
+                        `${(startTime + (index + 1) * 0.25).toFixed(2)}s: ${intensity >= 0 ? (intensity * 100).toFixed(1) + "%" : t.notAvailable}`
+                    ).join(", ");
+                } else {
+                    intensityText += t.notAvailable;
                 }
                 intensityResult.textContent = intensityText;
-            } else {
-                intensityResult.textContent = `${t.intensityResult} ${t.notAvailable}`;
+                
+                resultsElement.style.display = 'block';
+                graphTitle.style.display = 'block';
+                statusElement.textContent = t.completeStatus;
+                
+            } catch (error) {
+                console.error('Ошибка при обработке данных:', error);
+                statusElement.textContent = translations[currentLanguage].errorProcessing || "Ошибка обработки данных: " + error.message;
             }
         }
 
-        function calculateIntegralCurve(signal, backgroundLevel) {
-            const integralPoints = [];
-            let integralValue = 0;
-            const timeStep = DURATION / signal.length;
+        function calculateIntegralCurve(signal, background) {
+            const integral = [];
+            let sum = 0;
             
             for (let i = 0; i < signal.length; i++) {
-                const signalValue = Math.max(0, signal[i] - backgroundLevel * 0.8);
-                integralValue += signalValue * timeStep;
-                
-                integralPoints.push({
-                    x: i * timeStep / DURATION,
-                    y: integralValue
+                const correctedValue = Math.max(0, signal[i] - background);
+                sum += correctedValue;
+                integral.push({
+                    x: i / signal.length,
+                    y: sum
                 });
             }
             
-            return integralPoints;
+            return integral;
+        }
+
+        function drawGraph(signal, background, integral, startTime, endTime, cutoffTimes) {
+            // Resolve CSS custom properties to concrete colors for Canvas
+            const styles = getComputedStyle(document.documentElement);
+            const signalColor = styles.getPropertyValue('--signal-color').trim();
+            const backgroundColor = styles.getPropertyValue('--background-color').trim();
+            const integralColor = styles.getPropertyValue('--integral-color').trim();
+            const startColor = styles.getPropertyValue('--start-color').trim();
+            const endColor = styles.getPropertyValue('--end-color').trim();
+            const cutoffColor = styles.getPropertyValue('--cutoff-color').trim();
+
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 40;
+            
+            ctx.clearRect(0, 0, width, height);
+            
+            // Рисуем сетку
+            ctx.strokeStyle = '#E0E0E0';
+            ctx.lineWidth = 1;
+            
+            // Вертикальные линии
+            for (let i = 0; i <= 10; i++) {
+                const x = padding + i * (width - 2 * padding) / 10;
+                ctx.beginPath();
+                ctx.moveTo(x, padding);
+                ctx.lineTo(x, height - padding);
+                ctx.stroke();
+            }
+            
+            // Горизонтальные линии
+            for (let i = 0; i <= 5; i++) {
+                const y = padding + i * (height - 2 * padding) / 5;
+                ctx.beginPath();
+                ctx.moveTo(padding, y);
+                ctx.lineTo(width - padding, y);
+                ctx.stroke();
+            }
+            
+            // Оси
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 2;
+            
+            // Ось X
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.stroke();
+            
+            // Ось Y
+            ctx.beginPath();
+            ctx.moveTo(padding, padding);
+            ctx.lineTo(padding, height - padding);
+            ctx.stroke();
+            
+            // Подписи осей
+            ctx.fillStyle = '#333';
+            ctx.font = '14px Arial';
+            ctx.textAlign = 'center';
+            
+            // Подписи оси X
+            for (let i = 0; i <= 10; i++) {
+                const x = padding + i * (width - 2 * padding) / 10;
+                const time = (i * DURATION / 10).toFixed(1);
+                ctx.fillText(time, x, height - padding + 20);
+            }
+            
+            // Подпись оси X
+            const t = translations[currentLanguage];
+            ctx.fillText(t.timeLabel, width / 2, height - 5);
+            
+            // Подписи оси Y
+            ctx.save();
+            ctx.translate(10, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(t.intensityLabel, 0, 0);
+            ctx.restore();
+            
+            // Функция для преобразования координат
+            const scaleX = (x) => padding + x * (width - 2 * padding);
+            const scaleY = (y) => height - padding - y * (height - 2 * padding);
+            
+            // Рисуем фоновый шум
+            ctx.beginPath();
+            ctx.strokeStyle = backgroundColor;
+            ctx.lineWidth = 2;
+            
+            for (let i = 0; i < background.length; i++) {
+                const point = background[i];
+                const x = scaleX(point.x);
+                const y = scaleY(point.y);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Нормализуем сигнал для отображения
+            const maxSignal = Math.max(...signal);
+            const normalizedSignal = signal.map(value => value / maxSignal);
+            
+            // Рисуем сигнал
+            ctx.beginPath();
+            ctx.strokeStyle = signalColor;
+            ctx.lineWidth = 2;
+            
+            for (let i = 0; i < normalizedSignal.length; i++) {
+                const x = scaleX(i / normalizedSignal.length);
+                const y = scaleY(normalizedSignal[i]);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Рисуем интегральную кривую
+            ctx.beginPath();
+            ctx.strokeStyle = integralColor;
+            ctx.lineWidth = 2;
+            
+            for (let i = 0; i < integral.length; i++) {
+                const point = integral[i];
+                const x = scaleX(point.x);
+                const y = scaleY(point.y);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Рисуем вертикальные линии для старта, финиша и отсечения
+            if (startTime > 0) {
+                const startX = scaleX(startTime / DURATION);
+                
+                // Линия старта
+                ctx.beginPath();
+                ctx.strokeStyle = startColor;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(startX, padding);
+                ctx.lineTo(startX, height - padding);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Подпись старта
+                ctx.fillStyle = startColor;
+                ctx.fillText(t.startLabel, startX, padding - 10);
+            }
+            
+            if (endTime > 0) {
+                const endX = scaleX(endTime / DURATION);
+                
+                // Линия финиша
+                ctx.beginPath();
+                ctx.strokeStyle = endColor;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(endX, padding);
+                ctx.lineTo(endX, height - padding);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Подпись финиша
+                ctx.fillStyle = endColor;
+                ctx.fillText(t.finishLabel, endX, padding - 10);
+            }
+            
+            // Линии отсечения
+            for (let i = 0; i < cutoffTimes.length; i++) {
+                const cutoffTime = cutoffTimes[i];
+                if (cutoffTime > 0 && cutoffTime < DURATION) {
+                    const cutoffX = scaleX(cutoffTime / DURATION);
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = cutoffColor;
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([3, 3]);
+                    ctx.moveTo(cutoffX, padding);
+                    ctx.lineTo(cutoffX, height - padding);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    
+                    // Подпись отсечения
+                    ctx.fillStyle = cutoffColor;
+                    ctx.fillText(`${t.cutoffLabel} ${i + 1}`, cutoffX, padding - 25);
+                }
+            }
+        }
+
+        function drawHistoryGraph() {
+            // Get computed CSS variables for history colors
+            const styles = getComputedStyle(document.documentElement);
+            const historyColor1 = styles.getPropertyValue('--history-color-1').trim();
+            const historyColor2 = styles.getPropertyValue('--history-color-2').trim();
+            const historyColor3 = styles.getPropertyValue('--history-color-3').trim();
+            const historyColor4 = styles.getPropertyValue('--history-color-4').trim();
+
+            if (measurementHistory.length === 0) {
+                historySection.style.display = 'none';
+                return;
+            }
+            
+            historySection.style.display = 'block';
+            const width = historyCanvas.width;
+            const height = historyCanvas.height;
+            const padding = { top: 40, right: 60, bottom: 80, left: 80 };
+            
+            historyCtx.clearRect(0, 0, width, height);
+            
+            // Рисуем сетку
+            historyCtx.strokeStyle = '#E0E0E0';
+            historyCtx.lineWidth = 1;
+            
+            // Вертикальные линии
+            for (let i = 0; i <= 10; i++) {
+                const x = padding.left + i * (width - padding.left - padding.right) / 10;
+                historyCtx.beginPath();
+                historyCtx.moveTo(x, padding.top);
+                historyCtx.lineTo(x, height - padding.bottom);
+                historyCtx.stroke();
+            }
+            
+            // Горизонтальные линии
+            for (let i = 0; i <= 5; i++) {
+                const y = padding.top + i * (height - padding.top - padding.bottom) / 5;
+                historyCtx.beginPath();
+                historyCtx.moveTo(padding.left, y);
+                historyCtx.lineTo(width - padding.right, y);
+                historyCtx.stroke();
+            }
+            
+            // Оси
+            historyCtx.strokeStyle = '#888';
+            historyCtx.lineWidth = 2;
+            
+            // Ось X
+            historyCtx.beginPath();
+            historyCtx.moveTo(padding.left, height - padding.bottom);
+            historyCtx.lineTo(width - padding.right, height - padding.bottom);
+            historyCtx.stroke();
+            
+            // Ось Y
+            historyCtx.beginPath();
+            historyCtx.moveTo(padding.left, padding.top);
+            historyCtx.lineTo(padding.left, height - padding.bottom);
+            historyCtx.stroke();
+            
+            // Подписи осей
+            historyCtx.fillStyle = '#333';
+            historyCtx.font = '14px Arial';
+            
+            // Подпись оси X
+            historyCtx.textAlign = 'center';
+            const t = translations[currentLanguage];
+            historyCtx.fillText(t.dateLabel, width / 2, height - 15);
+            
+            // Подпись оси Y
+            historyCtx.save();
+            historyCtx.translate(20, height / 2);
+            historyCtx.rotate(-Math.PI / 2);
+            historyCtx.fillText(t.intensityHistoryLabel, 0, 0);
+            historyCtx.restore();
+            
+            // Подписи значений оси Y
+            historyCtx.textAlign = 'right';
+            for (let i = 0; i <= 5; i++) {
+                const value = i * 0.2;
+                const y = padding.top + (5 - i) * (height - padding.top - padding.bottom) / 5;
+                historyCtx.fillText(value.toFixed(1), padding.left - 10, y + 5);
+            }
+            
+            // Подписи дат на оси X
+            const barWidth = (width - padding.left - padding.right) / measurementHistory.length;
+            historyCtx.textAlign = 'center';
+            historyCtx.save();
+            historyCtx.translate(0, 0);
+            
+            measurementHistory.forEach((measurement, index) => {
+                const x = padding.left + (index + 0.5) * barWidth;
+                historyCtx.fillText(measurement.date, x, height - padding.bottom + 20);
+                historyCtx.fillText(measurement.time, x, height - padding.bottom + 40);
+            });
+            
+            historyCtx.restore();
+            
+            // Цвета для точек отсечения
+            const cutoffColors = [
+                historyColor1, // 0.25s
+                historyColor2, // 0.50s
+                historyColor3, // 0.75s
+                historyColor4  // 1.00s
+            ];
+            
+            // Рисуем точки для каждого измерения
+            measurementHistory.forEach((measurement, index) => {
+                const x = padding.left + (index + 0.5) * barWidth;
+                
+                // Рисуем точки для каждой временной точки отсечения
+                measurement.cutoffIntensities.forEach((intensity, cutoffIndex) => {
+                    if (intensity >= 0) {
+                        const y = padding.top + (1 - intensity) * (height - padding.top - padding.bottom);
+                        
+                        historyCtx.beginPath();
+                        historyCtx.fillStyle = cutoffColors[cutoffIndex];
+                        historyCtx.arc(x, y, 5, 0, 2 * Math.PI);
+                        historyCtx.fill();
+                    }
+                });
+            });
+            
+            // Рисуем соединительные линии для каждой временной точки
+            cutoffColors.forEach((color, cutoffIndex) => {
+                historyCtx.beginPath();
+                historyCtx.strokeStyle = color;
+                historyCtx.lineWidth = 2;
+                
+                let firstPoint = true;
+                
+                measurementHistory.forEach((measurement, index) => {
+                    const intensity = measurement.cutoffIntensities[cutoffIndex];
+                    if (intensity >= 0) {
+                        const x = padding.left + (index + 0.5) * barWidth;
+                        const y = padding.top + (1 - intensity) * (height - padding.top - padding.bottom);
+                        
+                        if (firstPoint) {
+                            historyCtx.moveTo(x, y);
+                            firstPoint = false;
+                        } else {
+                            historyCtx.lineTo(x, y);
+                        }
+                    }
+                });
+                
+                historyCtx.stroke();
+            });
         }
 
         function updateTimer(seconds) {
-            timerElement.textContent = `${translations[currentLanguage].timeLeft} ${seconds} ${translations[currentLanguage].seconds}`;
+            const t = translations[currentLanguage];
+            timerElement.textContent = `${t.timeLeft} ${seconds} ${t.seconds}`;
         }
 
         function resetRecordingState() {
@@ -910,322 +1293,23 @@
             timerElement.textContent = '';
         }
 
-        function drawGraphWithBackground(
-            originalData, 
-            backgroundData, 
-            integralData,
-            timeStep, 
-            startTime, 
-            endTime, 
-            cutoffTimes
-        ) {
-            if (!originalData || !backgroundData || !integralData || !timeStep) {
-                console.error('Некорректные параметры для drawGraphWithBackground');
-                return;
-            }
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Сетка и оси
-            ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color').trim();
-            ctx.lineWidth = 1;
-            
-            for (let i = 0; i <= 1; i += 0.1) {
-                const y = canvas.height - i * canvas.height;
-                ctx.moveTo(0, y);
-                ctx.lineTo(canvas.width, y);
-            }
-            
-            for (let i = 0; i <= DURATION; i += 1) {
-                const x = (i / DURATION) * canvas.width;
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, canvas.height);
-            }
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis-color').trim();
-            ctx.lineWidth = 2;
-            ctx.moveTo(0, canvas.height);
-            ctx.lineTo(canvas.width, canvas.height);
-            ctx.moveTo(0, 0);
-            ctx.lineTo(0, canvas.height);
-            ctx.stroke();
-
-            // Фон (зелёный)
-            ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--background-color').trim();
-            ctx.lineWidth = 3;
-            ctx.setLineDash([5, 3]);
-            for (let i = 0; i < backgroundData.length; i++) {
-                const x = backgroundData[i].x * canvas.width;
-                const y = canvas.height - backgroundData[i].y * canvas.height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Очищенный сигнал (красный)
-            ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--signal-color').trim();
-            ctx.lineWidth = 3;
-            for (let i = 0; i < backgroundData.length; i++) {
-                const originalIndex = Math.round(backgroundData[i].x * originalData.length);
-                const originalValue = originalData[Math.min(originalIndex, originalData.length - 1)];
-                const backgroundValue = backgroundData[i].y;
-                const cleanedValue = Math.max(0, originalValue - backgroundValue * 0.8);
-                
-                const x = backgroundData[i].x * canvas.width;
-                const y = canvas.height - cleanedValue * canvas.height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-
-            // Интегральная кривая (синяя)
-            ctx.beginPath();
-            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--integral-color').trim();
-            ctx.lineWidth = 3;
-            ctx.setLineDash([3, 3]);
-            for (let i = 0; i < integralData.length; i++) {
-                const x = integralData[i].x * canvas.width;
-                const y = canvas.height - integralData[i].y * canvas.height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // Отметка старта сигнала
-            const t = translations[currentLanguage];
-            if (startTime > 0 && startTime < DURATION) {
-                const startX = (startTime / DURATION) * canvas.width;
-                
-                ctx.beginPath();
-                ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--start-color').trim();
-                ctx.lineWidth = 2;
-                ctx.setLineDash([3, 3]);
-                ctx.moveTo(startX, 0);
-                ctx.lineTo(startX, canvas.height);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.font = '14px "Segoe UI", sans-serif';
-                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--start-color').trim();
-                ctx.textAlign = 'center';
-                ctx.fillText(`${t.startLabel} - ${startTime.toFixed(1)} ${t.seconds}`, startX, canvas.height + 20);
-            }
-
-            // Отметка финиша сигнала (99% интеграла)
-            if (endTime > 0 && endTime < DURATION) {
-                const endX = (endTime / DURATION) * canvas.width;
-                
-                ctx.beginPath();
-                ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--end-color').trim();
-                ctx.lineWidth = 2;
-                ctx.setLineDash([3, 3]);
-                ctx.moveTo(endX, 0);
-                ctx.lineTo(endX, canvas.height);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.font = '14px "Segoe UI", sans-serif';
-                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--end-color').trim();
-                ctx.textAlign = 'center';
-                ctx.fillText(`${t.finishLabel} - ${endTime.toFixed(1)} ${t.seconds}`, endX, canvas.height + 40);
-            }
-
-            // Отметки моментов отсечения
-            if (cutoffTimes && cutoffTimes.length > 0 && startTime > 0) {
-                const cutoffLabels = ["0.25s", "0.50s", "0.75s", "1.00s"];
-                
-                for (let i = 0; i < cutoffTimes.length; i++) {
-                    const cutoffTime = cutoffTimes[i];
-                    if (cutoffTime > 0 && cutoffTime < DURATION) {
-                        const cutoffX = (cutoffTime / DURATION) * canvas.width;
-                        
-                        ctx.beginPath();
-                        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
-                        ctx.lineWidth = 2;
-                        ctx.setLineDash([3, 3]);
-                        ctx.moveTo(cutoffX, 0);
-                        ctx.lineTo(cutoffX, canvas.height);
-                        ctx.stroke();
-                        ctx.setLineDash([]);
-                        
-                        ctx.font = '12px "Segoe UI", sans-serif';
-                        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
-                        ctx.textAlign = 'center';
-                        ctx.fillText(`${t.cutoffLabel} ${cutoffLabels[i]} - ${cutoffTime.toFixed(2)} ${t.seconds}`, 
-                                    cutoffX, canvas.height + 60 + i * 20);
-                    }
-                }
-            }
-
-            // Подписи осей
-            ctx.font = '12px "Segoe UI", sans-serif';
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim();
-            
-            ctx.textAlign = 'center';
-            for (let i = 0; i <= DURATION; i += 1) {
-                const x = (i / DURATION) * canvas.width;
-                ctx.fillText(i.toString(), x, canvas.height - 8);
-            }
-            ctx.fillText(t.timeLabel, canvas.width / 2, canvas.height - 15);
-            
-            ctx.textAlign = 'right';
-            for (let i = 0; i <= 1; i += 0.2) {
-                const y = canvas.height - i * canvas.height;
-                ctx.fillText(i.toFixed(1), 30, y + 4);
-            }
-            ctx.save();
-            ctx.translate(15, canvas.height / 2);
-            ctx.rotate(-Math.PI / 2);
-            ctx.textAlign = 'center';
-            ctx.fillText(t.intensityLabel, 0, 0);
-            ctx.restore();
-        }
-
-        function drawHistoryGraph() {
-            if (measurementHistory.length === 0) return;
-
-            historyCtx.clearRect(0, 0, historyCanvas.width, historyCanvas.height);
-            
-            const t = translations[currentLanguage];
-            const padding = 60;
-            const graphWidth = historyCanvas.width - padding * 2;
-            const graphHeight = historyCanvas.height - padding * 2;
-            
-            // Сетка и оси
-            historyCtx.beginPath();
-            historyCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color').trim();
-            historyCtx.lineWidth = 1;
-            
-            // Горизонтальные линии
-            for (let i = 0; i <= 1; i += 0.2) {
-                const y = padding + graphHeight - i * graphHeight;
-                historyCtx.moveTo(padding, y);
-                historyCtx.lineTo(padding + graphWidth, y);
-            }
-            
-            // Вертикальные линии
-            for (let i = 0; i < measurementHistory.length; i++) {
-                const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
-                historyCtx.moveTo(x, padding);
-                historyCtx.lineTo(x, padding + graphHeight);
-            }
-            historyCtx.stroke();
-
-            // Оси
-            historyCtx.beginPath();
-            historyCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis-color').trim();
-            historyCtx.lineWidth = 2;
-            historyCtx.moveTo(padding, padding + graphHeight);
-            historyCtx.lineTo(padding + graphWidth, padding + graphHeight);
-            historyCtx.moveTo(padding, padding);
-            historyCtx.lineTo(padding, padding + graphHeight);
-            historyCtx.stroke();
-
-            // Цвета для линий
-            const colors = [
-                getComputedStyle(document.documentElement).getPropertyValue('--history-color-1').trim(),
-                getComputedStyle(document.documentElement).getPropertyValue('--history-color-2').trim(),
-                getComputedStyle(document.documentElement).getPropertyValue('--history-color-3').trim(),
-                getComputedStyle(document.documentElement).getPropertyValue('--history-color-4').trim()
-            ];
-
-            // Рисуем 4 линии для каждого момента отсечения
-            for (let pointIndex = 0; pointIndex < 4; pointIndex++) {
-                historyCtx.beginPath();
-                historyCtx.strokeStyle = colors[pointIndex];
-                historyCtx.lineWidth = 3;
-                
-                for (let i = 0; i < measurementHistory.length; i++) {
-                    const measurement = measurementHistory[i];
-                    if (measurement.cutoffIntensities && measurement.cutoffIntensities[pointIndex] >= 0) {
-                        const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
-                        const y = padding + graphHeight - measurement.cutoffIntensities[pointIndex] * graphHeight;
-                        
-                        if (i === 0) {
-                            historyCtx.moveTo(x, y);
-                        } else {
-                            historyCtx.lineTo(x, y);
-                        }
-                    }
-                }
-                historyCtx.stroke();
-                
-                // Точки на графике
-                for (let i = 0; i < measurementHistory.length; i++) {
-                    const measurement = measurementHistory[i];
-                    if (measurement.cutoffIntensities && measurement.cutoffIntensities[pointIndex] >= 0) {
-                        const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
-                        const y = padding + graphHeight - measurement.cutoffIntensities[pointIndex] * graphHeight;
-                        
-                        historyCtx.beginPath();
-                        historyCtx.fillStyle = colors[pointIndex];
-                        historyCtx.arc(x, y, 5, 0, Math.PI * 2);
-                        historyCtx.fill();
-                    }
-                }
-            }
-
-            // Подписи осей
-            historyCtx.font = '12px "Segoe UI", sans-serif';
-            historyCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim();
-            
-            // Подписи по оси Y
-            historyCtx.textAlign = 'right';
-            for (let i = 0; i <= 1; i += 0.2) {
-                const y = padding + graphHeight - i * graphHeight;
-                historyCtx.fillText(i.toFixed(1), padding - 10, y + 4);
-            }
-            
-            // Подписи по оси X (даты)
-            historyCtx.textAlign = 'center';
-            for (let i = 0; i < measurementHistory.length; i++) {
-                const measurement = measurementHistory[i];
-                const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
-                historyCtx.save();
-                historyCtx.translate(x, padding + graphHeight + 20);
-                historyCtx.rotate(-Math.PI / 4);
-                historyCtx.fillText(measurement.date + ' ' + measurement.time, 0, 0);
-                historyCtx.restore();
-            }
-            
-            // Названия осей
-            historyCtx.textAlign = 'center';
-            historyCtx.fillText(t.dateLabel, padding + graphWidth / 2, historyCanvas.height - 15);
-            
-            historyCtx.save();
-            historyCtx.translate(15, padding + graphHeight / 2);
-            historyCtx.rotate(-Math.PI / 2);
-            historyCtx.textAlign = 'center';
-            historyCtx.fillText(t.intensityHistoryLabel, 0, 0);
-            historyCtx.restore();
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // Загружаем историю при запуске
-            loadHistory();
-            
-            // Если есть история, показываем график
-            if (measurementHistory.length > 0) {
-                historySection.style.display = 'block';
-                drawHistoryGraph();
-            }
-            
-            startBtn.addEventListener('click', startRecording);
-            
-            // Добавляем обработчики для кнопок переключения языка
-            languageButtons.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    changeLanguage(btn.dataset.lang);
-                });
+        // Инициализация
+        startBtn.addEventListener('click', startRecording);
+        
+        languageButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                changeLanguage(btn.dataset.lang);
             });
         });
+        
+        // Обработчик для кнопки удаления последней записи
+        deleteLastBtn.addEventListener('click', deleteLastRecord);
+        
+        // Загружаем историю при запуске
+        loadHistory();
+        
+        // Инициализируем язык по умолчанию
+        changeLanguage('ru');
     </script>
 </body>
 </html>
