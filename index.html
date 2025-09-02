@@ -19,6 +19,10 @@
             --text-color: #333;
             --light-text: #666;
             --border-color: #ddd;
+            --history-color-1: #FF0000;    /* Красный для точки 0.25s */
+            --history-color-2: #00AA00;    /* Зеленый для точки 0.50s */
+            --history-color-3: #0000FF;    /* Синий для точки 0.75s */
+            --history-color-4: #FF00FF;    /* Фиолетовый для точки 1.00s */
         }
         
         body {
@@ -32,7 +36,7 @@
         }
         
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             background: white;
             padding: 30px;
@@ -174,6 +178,34 @@
             direction: rtl;
         }
         
+        .history-section {
+            margin-top: 30px;
+            display: none;
+        }
+        
+        .history-legend {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #111827;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .history-legend span {
+            display: inline-flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .history-legend .color-box {
+            display: inline-block;
+            width: 18px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -187,6 +219,11 @@
             .language-selector {
                 position: static;
                 margin-bottom: 15px;
+            }
+            
+            .history-legend {
+                flex-direction: column;
+                gap: 10px;
             }
         }
     </style>
@@ -236,6 +273,17 @@
             <span><i class="color-box" style="background: var(--end-color);"></i> <span id="legend-end">Финиш</span></span>
             <span><i class="color-box" style="background: var(--cutoff-color);"></i> <span id="legend-cutoff">Отсечение</span></span>
         </div>
+        
+        <div class="history-section" id="history-section">
+            <h3 id="history-title">История измерений (последние 14 сеансов)</h3>
+            <canvas id="history-graph" width="800" height="400"></canvas>
+            <div class="history-legend">
+                <span><i class="color-box" style="background: var(--history-color-1);"></i> <span>0.25 сек</span></span>
+                <span><i class="color-box" style="background: var(--history-color-2);"></i> <span>0.50 сек</span></span>
+                <span><i class="color-box" style="background: var(--history-color-3);"></i> <span>0.75 сек</span></span>
+                <span><i class="color-box" style="background: var(--history-color-4);"></i> <span>1.00 сек</span></span>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -248,7 +296,8 @@
         const DURATION = 15;
         const SAMPLE_RATE = 44100;
         const CHUNK_SIZE = 1024;
-        const SIGNAL_AMPLIFICATION = 2.0; // Усиление сигнала вдвое
+        const SIGNAL_AMPLIFICATION = 2.0;
+        const MAX_HISTORY = 14; // Максимальное количество сохраняемых измерений
 
         const startBtn = document.getElementById('startBtn');
         const timerElement = document.getElementById('timer');
@@ -261,6 +310,10 @@
         const endTimeResult = document.getElementById('end-time-result');
         const intensityResult = document.getElementById('intensity-result');
         const languageButtons = document.querySelectorAll('.language-btn');
+        const historySection = document.getElementById('history-section');
+        const historyCanvas = document.getElementById('history-graph');
+        const historyCtx = historyCanvas.getContext('2d');
+        const historyLegend = document.querySelector('.history-legend');
 
         let audioContext;
         let analyser;
@@ -271,6 +324,55 @@
         let backgroundNoise = [];
         let isRecording = false;
         let currentLanguage = 'ru';
+        let measurementHistory = [];
+
+        // Загрузка истории из localStorage
+        function loadHistory() {
+            try {
+                const savedHistory = localStorage.getItem('measurementHistory');
+                if (savedHistory) {
+                    measurementHistory = JSON.parse(savedHistory);
+                    // Ограничиваем историю последними 14 измерениями
+                    if (measurementHistory.length > MAX_HISTORY) {
+                        measurementHistory = measurementHistory.slice(-MAX_HISTORY);
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки истории:', e);
+                measurementHistory = [];
+            }
+        }
+
+        // Сохранение истории в localStorage
+        function saveHistory() {
+            try {
+                localStorage.setItem('measurementHistory', JSON.stringify(measurementHistory));
+            } catch (e) {
+                console.error('Ошибка сохранения истории:', e);
+            }
+        }
+
+        // Добавление нового измерения в истории
+        function addToHistory(startTime, endTime, cutoffIntensities) {
+            const now = new Date();
+            const measurement = {
+                timestamp: now.toISOString(),
+                date: now.toLocaleDateString(),
+                time: now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+                startTime: startTime,
+                endTime: endTime,
+                cutoffIntensities: cutoffIntensities
+            };
+            
+            measurementHistory.push(measurement);
+            
+            // Ограничиваем историю последними 14 измерениями
+            if (measurementHistory.length > MAX_HISTORY) {
+                measurementHistory = measurementHistory.slice(-MAX_HISTORY);
+            }
+            
+            saveHistory();
+        }
 
         // Тексты для перевода
         const translations = {
@@ -300,6 +402,7 @@
                 endTimeResult: "Время финиша:",
                 intensityResult: "Интенсивность в точке отсечения:",
                 graphTitle: "График интенсивности звука",
+                historyTitle: "История измерений (последние 14 сеансов)",
                 legendSignal: "Сигнал",
                 legendBackground: "Фон",
                 legendIntegral: "Интеграл",
@@ -314,7 +417,9 @@
                 finishLabel: "Финиш (99%)",
                 cutoffLabel: "Отсечение",
                 timeLabel: "Время (секунды)",
-                intensityLabel: "Нормированная интенсивность"
+                intensityLabel: "Нормированная интенсивность",
+                dateLabel: "Дата и время измерений",
+                intensityHistoryLabel: "Интенсивность"
             },
             en: {
                 title: "Sound Intensity Analysis with Background Correction",
@@ -342,6 +447,7 @@
                 endTimeResult: "Finish time:",
                 intensityResult: "Intensity at cutoff point:",
                 graphTitle: "Sound Intensity Graph",
+                historyTitle: "Measurement History (last 14 sessions)",
                 legendSignal: "Signal",
                 legendBackground: "Background",
                 legendIntegral: "Integral",
@@ -356,7 +462,9 @@
                 finishLabel: "Finish (99%)",
                 cutoffLabel: "Cutoff",
                 timeLabel: "Time (seconds)",
-                intensityLabel: "Normalized intensity"
+                intensityLabel: "Normalized intensity",
+                dateLabel: "Date and time of measurements",
+                intensityHistoryLabel: "Intensity"
             },
             he: {
                 title: "ניתוח עוצמת קול עם תיקון רקע",
@@ -384,6 +492,7 @@
                 endTimeResult: "זמן סיום:",
                 intensityResult: "עוצמה בנקודת החיתוך:",
                 graphTitle: "גרף עוצמת קול",
+                historyTitle: "היסטוריית מדידות (14 המדידות האחרונות)",
                 legendSignal: "אות",
                 legendBackground: "רקע",
                 legendIntegral: "אינטגרל",
@@ -398,7 +507,9 @@
                 finishLabel: "סיום (99%)",
                 cutoffLabel: "חיתוך",
                 timeLabel: "זמן (שניות)",
-                intensityLabel: "עוצמה מ�נורמלת"
+                intensityLabel: "עוצמה מנורמלת",
+                dateLabel: "תאריך ושעה של המדידות",
+                intensityHistoryLabel: "עוצמה"
             }
         };
 
@@ -426,6 +537,7 @@
             startBtn.textContent = t.startButton;
             document.getElementById('results-title').textContent = t.resultsTitle;
             document.getElementById('graph-title').textContent = t.graphTitle;
+            document.getElementById('history-title').textContent = t.historyTitle;
             document.getElementById('legend-signal').textContent = t.legendSignal;
             document.getElementById('legend-background').textContent = t.legendBackground;
             document.getElementById('legend-integral').textContent = t.legendIntegral;
@@ -461,6 +573,11 @@
             // Перерисовываем график, если данные уже есть
             if (audioData.length > 0) {
                 processAndDrawData();
+            }
+            
+            // Перерисовываем график истории
+            if (measurementHistory.length > 0) {
+                drawHistoryGraph();
             }
         }
 
@@ -499,6 +616,7 @@
                 statusElement.classList.add('recording');
                 graphTitle.style.display = 'none';
                 resultsElement.style.display = 'none';
+                historySection.style.display = 'none';
                 
                 processAudio();
                 
@@ -565,7 +683,7 @@
             }
             
             statusElement.textContent = translations[currentLanguage].analyzingStatus;
-            statusElement.classList.remove('recording');
+            statusElement.classList.remove('recoring');
             
             setTimeout(() => {
                 processAndDrawData();
@@ -699,6 +817,11 @@
                     }
                 }
                 
+                // Добавляем в историю
+                if (startTime > 0) {
+                    addToHistory(startTime, endTime, cutoffIntensities);
+                }
+                
                 // Показываем результаты анализа
                 showResults(startTime, endTime, cutoffIntensities);
                 
@@ -712,6 +835,13 @@
                     endTime, 
                     cutoffTimes
                 );
+                
+                // Показываем график истории
+                if (measurementHistory.length > 0) {
+                    historySection.style.display = 'block';
+                    drawHistoryGraph();
+                }
+                
                 statusElement.textContent = translations[currentLanguage].completeStatus;
             } catch (error) {
                 console.error('Ошибка при обработке данных:', error);
@@ -958,7 +1088,135 @@
             ctx.restore();
         }
 
+        function drawHistoryGraph() {
+            if (measurementHistory.length === 0) return;
+
+            historyCtx.clearRect(0, 0, historyCanvas.width, historyCanvas.height);
+            
+            const t = translations[currentLanguage];
+            const padding = 60;
+            const graphWidth = historyCanvas.width - padding * 2;
+            const graphHeight = historyCanvas.height - padding * 2;
+            
+            // Сетка и оси
+            historyCtx.beginPath();
+            historyCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid-color').trim();
+            historyCtx.lineWidth = 1;
+            
+            // Горизонтальные линии
+            for (let i = 0; i <= 1; i += 0.2) {
+                const y = padding + graphHeight - i * graphHeight;
+                historyCtx.moveTo(padding, y);
+                historyCtx.lineTo(padding + graphWidth, y);
+            }
+            
+            // Вертикальные линии
+            for (let i = 0; i < measurementHistory.length; i++) {
+                const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
+                historyCtx.moveTo(x, padding);
+                historyCtx.lineTo(x, padding + graphHeight);
+            }
+            historyCtx.stroke();
+
+            // Оси
+            historyCtx.beginPath();
+            historyCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--axis-color').trim();
+            historyCtx.lineWidth = 2;
+            historyCtx.moveTo(padding, padding + graphHeight);
+            historyCtx.lineTo(padding + graphWidth, padding + graphHeight);
+            historyCtx.moveTo(padding, padding);
+            historyCtx.lineTo(padding, padding + graphHeight);
+            historyCtx.stroke();
+
+            // Цвета для линий
+            const colors = [
+                getComputedStyle(document.documentElement).getPropertyValue('--history-color-1').trim(),
+                getComputedStyle(document.documentElement).getPropertyValue('--history-color-2').trim(),
+                getComputedStyle(document.documentElement).getPropertyValue('--history-color-3').trim(),
+                getComputedStyle(document.documentElement).getPropertyValue('--history-color-4').trim()
+            ];
+
+            // Рисуем 4 линии для каждого момента отсечения
+            for (let pointIndex = 0; pointIndex < 4; pointIndex++) {
+                historyCtx.beginPath();
+                historyCtx.strokeStyle = colors[pointIndex];
+                historyCtx.lineWidth = 3;
+                
+                for (let i = 0; i < measurementHistory.length; i++) {
+                    const measurement = measurementHistory[i];
+                    if (measurement.cutoffIntensities && measurement.cutoffIntensities[pointIndex] >= 0) {
+                        const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
+                        const y = padding + graphHeight - measurement.cutoffIntensities[pointIndex] * graphHeight;
+                        
+                        if (i === 0) {
+                            historyCtx.moveTo(x, y);
+                        } else {
+                            historyCtx.lineTo(x, y);
+                        }
+                    }
+                }
+                historyCtx.stroke();
+                
+                // Точки на графике
+                for (let i = 0; i < measurementHistory.length; i++) {
+                    const measurement = measurementHistory[i];
+                    if (measurement.cutoffIntensities && measurement.cutoffIntensities[pointIndex] >= 0) {
+                        const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
+                        const y = padding + graphHeight - measurement.cutoffIntensities[pointIndex] * graphHeight;
+                        
+                        historyCtx.beginPath();
+                        historyCtx.fillStyle = colors[pointIndex];
+                        historyCtx.arc(x, y, 5, 0, Math.PI * 2);
+                        historyCtx.fill();
+                    }
+                }
+            }
+
+            // Подписи осей
+            historyCtx.font = '12px "Segoe UI", sans-serif';
+            historyCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-color').trim();
+            
+            // Подписи по оси Y
+            historyCtx.textAlign = 'right';
+            for (let i = 0; i <= 1; i += 0.2) {
+                const y = padding + graphHeight - i * graphHeight;
+                historyCtx.fillText(i.toFixed(1), padding - 10, y + 4);
+            }
+            
+            // Подписи по оси X (даты)
+            historyCtx.textAlign = 'center';
+            for (let i = 0; i < measurementHistory.length; i++) {
+                const measurement = measurementHistory[i];
+                const x = padding + (i / (measurementHistory.length - 1)) * graphWidth;
+                historyCtx.save();
+                historyCtx.translate(x, padding + graphHeight + 20);
+                historyCtx.rotate(-Math.PI / 4);
+                historyCtx.fillText(measurement.date + ' ' + measurement.time, 0, 0);
+                historyCtx.restore();
+            }
+            
+            // Названия осей
+            historyCtx.textAlign = 'center';
+            historyCtx.fillText(t.dateLabel, padding + graphWidth / 2, historyCanvas.height - 15);
+            
+            historyCtx.save();
+            historyCtx.translate(15, padding + graphHeight / 2);
+            historyCtx.rotate(-Math.PI / 2);
+            historyCtx.textAlign = 'center';
+            historyCtx.fillText(t.intensityHistoryLabel, 0, 0);
+            historyCtx.restore();
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            // Загружаем историю при запуске
+            loadHistory();
+            
+            // Если есть история, показываем график
+            if (measurementHistory.length > 0) {
+                historySection.style.display = 'block';
+                drawHistoryGraph();
+            }
+            
             startBtn.addEventListener('click', startRecording);
             
             // Добавляем обработчики для кнопок переключения языка
