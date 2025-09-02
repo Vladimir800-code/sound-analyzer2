@@ -211,7 +211,7 @@
                 <li><span style="color: var(--integral-color); font-weight: bold;" id="integral-desc">Синяя линия</span> - <span id="integral-text">интегральная кривая</span></li>
                 <li><span style="color: var(--start-color); font-weight: bold;" id="start-desc">Фиолетовая линия</span> - <span id="start-text">момент старта сигнала</span></li>
                 <li><span style="color: var(--end-color); font-weight: bold;" id="end-desc">Розовая линия</span> - <span id="end-text">момент окончания сигнала (99% интеграла)</span></li>
-                <li><span style="color: var(--cutoff-color); font-weight: bold;" id="cutoff-desc">Оранжевая линия</span> - <span id="cutoff-text">момент отсечения (старт + 1 сек)</span></li>
+                <li><span style="color: var(--cutoff-color); font-weight: bold;" id="cutoff-desc">Оранжевая линия</span> - <span id="cutoff-text">моменты отсечения (старт + 0.25, 0.50, 0.75, 1.00 сек)</span></li>
             </ul>
         </div>
         
@@ -289,7 +289,7 @@
                 endDesc: "Розовая линия",
                 endText: "момент окончания сигнала (99% интеграла)",
                 cutoffDesc: "Оранжевая линия",
-                cutoffText: "момент отсечения (старт + 1 сек)",
+                cutoffText: "моменты отсечения (старт + 0.25, 0.50, 0.75, 1.00 сек)",
                 startButton: "Начать запись (15 сек)",
                 readyStatus: "Готов к записи",
                 recordingStatus: "Идёт запись...",
@@ -331,7 +331,7 @@
                 endDesc: "Pink line",
                 endText: "signal end moment (99% of integral)",
                 cutoffDesc: "Orange line",
-                cutoffText: "cutoff moment (start + 1 sec)",
+                cutoffText: "cutoff moments (start + 0.25, 0.50, 0.75, 1.00 sec)",
                 startButton: "Start Recording (15 sec)",
                 readyStatus: "Ready to record",
                 recordingStatus: "Recording...",
@@ -373,7 +373,7 @@
                 endDesc: "קו ורוד",
                 endText: "רגע סיום האות (99% מהאינטגרל)",
                 cutoffDesc: "קו כתום",
-                cutoffText: "רגע החיתוך (תחילה + 1 שנייה)",
+                cutoffText: "רגעי החיתוך (תחילה + 0.25, 0.50, 0.75, 1.00 שניות)",
                 startButton: "התחל הקלטה (15 שניות)",
                 readyStatus: "מוכן להקלטה",
                 recordingStatus: "מקליט...",
@@ -398,7 +398,7 @@
                 finishLabel: "סיום (99%)",
                 cutoffLabel: "חיתוך",
                 timeLabel: "זמן (שניות)",
-                intensityLabel: "עוצמה מנורמלת"
+                intensityLabel: "עוצמה מ�נורמלת"
             }
         };
 
@@ -664,9 +664,17 @@
                 const sampleRate = audioData.length / DURATION;
                 const startTime = findSignalStart(integralSignal, sampleRate);
                 const endTime = findSignalEnd(integralSignal, sampleRate, startTime);
-                const cutoffTime = startTime > 0 ? startTime + 1 : -1;
                 
-                console.log("Start time:", startTime, "End time:", endTime, "Cutoff time:", cutoffTime);
+                // Вычисляем моменты отсечения
+                const cutoffTimes = [];
+                if (startTime > 0) {
+                    cutoffTimes.push(startTime + 0.25);
+                    cutoffTimes.push(startTime + 0.50);
+                    cutoffTimes.push(startTime + 0.75);
+                    cutoffTimes.push(startTime + 1.00);
+                }
+                
+                console.log("Start time:", startTime, "End time:", endTime, "Cutoff times:", cutoffTimes);
                 
                 const maxIntegralValue = Math.max(...integralSignal.map(p => p.y));
                 const normalizedIntegral = integralSignal.map(p => ({
@@ -674,17 +682,25 @@
                     y: maxIntegralValue > 0 ? p.y / maxIntegralValue : 0
                 }));
                 
-                // Вычисляем интенсивность в точке отсечения
-                let cutoffIntensity = -1;
-                if (cutoffTime > 0 && cutoffTime < DURATION) {
-                    const cutoffIndex = Math.floor(cutoffTime / timeStep);
-                    if (cutoffIndex >= 0 && cutoffIndex < normalizedIntegral.length) {
-                        cutoffIntensity = normalizedIntegral[cutoffIndex].y;
+                // Вычисляем интенсивность в точках отсечения
+                const cutoffIntensities = [];
+                if (startTime > 0) {
+                    for (const cutoffTime of cutoffTimes) {
+                        if (cutoffTime > 0 && cutoffTime < DURATION) {
+                            const cutoffIndex = Math.floor(cutoffTime / timeStep);
+                            if (cutoffIndex >= 0 && cutoffIndex < normalizedIntegral.length) {
+                                cutoffIntensities.push(normalizedIntegral[cutoffIndex].y);
+                            } else {
+                                cutoffIntensities.push(-1);
+                            }
+                        } else {
+                            cutoffIntensities.push(-1);
+                        }
                     }
                 }
                 
                 // Показываем результаты анализа
-                showResults(startTime, endTime, cutoffIntensity);
+                showResults(startTime, endTime, cutoffIntensities);
                 
                 graphTitle.style.display = 'block';
                 drawGraphWithBackground(
@@ -694,7 +710,7 @@
                     timeStep, 
                     startTime, 
                     endTime, 
-                    cutoffTime
+                    cutoffTimes
                 );
                 statusElement.textContent = translations[currentLanguage].completeStatus;
             } catch (error) {
@@ -703,7 +719,7 @@
             }
         }
 
-        function showResults(startTime, endTime, cutoffIntensity) {
+        function showResults(startTime, endTime, cutoffIntensities) {
             resultsElement.style.display = 'block';
             const t = translations[currentLanguage];
             
@@ -719,8 +735,19 @@
                 endTimeResult.textContent = `${t.endTimeResult} ${t.notDetected}`;
             }
             
-            if (cutoffIntensity !== undefined && cutoffIntensity >= 0) {
-                intensityResult.textContent = `${t.intensityResult} ${cutoffIntensity.toFixed(4)}`;
+            if (cutoffIntensities && cutoffIntensities.length > 0) {
+                let intensityText = `${t.intensityResult} `;
+                for (let i = 0; i < cutoffIntensities.length; i++) {
+                    if (cutoffIntensities[i] >= 0) {
+                        intensityText += `${cutoffIntensities[i].toFixed(4)}`;
+                    } else {
+                        intensityText += `${t.notAvailable}`;
+                    }
+                    if (i < cutoffIntensities.length - 1) {
+                        intensityText += ", ";
+                    }
+                }
+                intensityResult.textContent = intensityText;
             } else {
                 intensityResult.textContent = `${t.intensityResult} ${t.notAvailable}`;
             }
@@ -760,7 +787,7 @@
             timeStep, 
             startTime, 
             endTime, 
-            cutoffTime
+            cutoffTimes
         ) {
             if (!originalData || !backgroundData || !integralData || !timeStep) {
                 console.error('Некорректные параметры для drawGraphWithBackground');
@@ -880,23 +907,31 @@
                 ctx.fillText(`${t.finishLabel} - ${endTime.toFixed(1)} ${t.seconds}`, endX, canvas.height + 40);
             }
 
-            // Отметка момента отсечения
-            if (cutoffTime > 0 && cutoffTime < DURATION && startTime > 0) {
-                const cutoffX = (cutoffTime / DURATION) * canvas.width;
+            // Отметки моментов отсечения
+            if (cutoffTimes && cutoffTimes.length > 0 && startTime > 0) {
+                const cutoffLabels = ["0.25s", "0.50s", "0.75s", "1.00s"];
                 
-                ctx.beginPath();
-                ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
-                ctx.lineWidth = 2;
-                ctx.setLineDash([3, 3]);
-                ctx.moveTo(cutoffX, 0);
-                ctx.lineTo(cutoffX, canvas.height);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                ctx.font = '14px "Segoe UI", sans-serif';
-                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
-                ctx.textAlign = 'center';
-                ctx.fillText(`${t.cutoffLabel} - ${cutoffTime.toFixed(1)} ${t.seconds}`, cutoffX, canvas.height + 60);
+                for (let i = 0; i < cutoffTimes.length; i++) {
+                    const cutoffTime = cutoffTimes[i];
+                    if (cutoffTime > 0 && cutoffTime < DURATION) {
+                        const cutoffX = (cutoffTime / DURATION) * canvas.width;
+                        
+                        ctx.beginPath();
+                        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([3, 3]);
+                        ctx.moveTo(cutoffX, 0);
+                        ctx.lineTo(cutoffX, canvas.height);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        
+                        ctx.font = '12px "Segoe UI", sans-serif';
+                        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--cutoff-color').trim();
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`${t.cutoffLabel} ${cutoffLabels[i]} - ${cutoffTime.toFixed(2)} ${t.seconds}`, 
+                                    cutoffX, canvas.height + 60 + i * 20);
+                    }
+                }
             }
 
             // Подписи осей
