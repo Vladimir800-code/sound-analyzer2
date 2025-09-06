@@ -10,7 +10,7 @@
             --background-color: #00AA00;    /* Ярко-зелёный */
             --integral-color: #0000FF;     /* Ярко-синий */
             --start-color: #FF00FF;       /* Фиолетовый для старта */
-            --end-color: #FF69B4;        /* Розовый для финиша */
+            --end-color: #FF69B4;        /* Розовая для финиша */
             --cutoff-color: #FFA500;     /* Оранжевый для момента отсечения */
             --grid-color: #E0E0E0;         /* Светло-серая сетка */
             --axis-color: #888;            /* Серые оси */
@@ -24,6 +24,9 @@
             --history-color-3: #0000FF;    /* Синий для точки 0.75s */
             --history-color-4: #FF00FF;    /* Фиолетовый для точки 1.00s */
             --delete-color: #ff4757;       /* Цвет для кнопки удаления */
+            --good-zone-color: rgba(0, 255, 0, 0.15);     /* Зеленая зона (прозрачная) */
+            --warning-zone-color: rgba(255, 255, 0, 0.15); /* Желтая зона (прозрачная) */
+            --bad-zone-color: rgba(255, 0, 0, 0.15);      /* Красная зона (прозрачная) */
         }
         
         body {
@@ -207,6 +210,28 @@
             border: 1px solid #ddd;
         }
         
+        .history-zone-legend {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #111827;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .history-zone-legend span {
+            display: inline-flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .history-zone-legend .color-box {
+            display: inline-block;
+            width: 18px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 3px;
+        }
+        
         .delete-btn {
             background-color: var(--delete-color);
             padding: 8px 16px;
@@ -244,7 +269,7 @@
                 margin-bottom: 15px;
             }
             
-            .history-legend {
+            .history-legend, .history-zone-legend {
                 flex-direction: column;
                 gap: 10px;
             }
@@ -313,6 +338,11 @@
                 <span><i class="color-box" style="background: var(--history-color-2);"></i> <span>0.50 сек</span></span>
                 <span><i class="color-box" style="background: var(--history-color-3);"></i> <span>0.75 сек</span></span>
                 <span><i class="color-box" style="background: var(--history-color-4);"></i> <span>1.00 сек</span></span>
+            </div>
+            <div class="history-zone-legend">
+                <span><i class="color-box" style="background: var(--good-zone-color);"></i> <span>Хорошо (>0.8)</span></span>
+                <span><i class="color-box" style="background: var(--warning-zone-color);"></i> <span>Удовлетворительно (0.5-0.8)</span></span>
+                <span><i class="color-box" style="background: var(--bad-zone-color);"></i> <span>Тревожно (<0.5)</span></span>
             </div>
         </div>
     </div>
@@ -486,7 +516,10 @@
                 dateLabel: "Дата и время измерений",
                 intensityHistoryLabel: "Интенсивность",
                 deleteButton: "Удалить последнюю запись",
-                lastRecordDeleted: "Последняя запись удалена"
+                lastRecordDeleted: "Последняя запись удалена",
+                goodZoneLabel: "Хорошо (>0.8)",
+                warningZoneLabel: "Удовлетворительно (0.5-0.8)",
+                badZoneLabel: "Тревожно (<0.5)"
             },
             en: {
                 title: "Sound Intensity Analysis with Background Correction",
@@ -533,7 +566,10 @@
                 dateLabel: "Date and time of measurements",
                 intensityHistoryLabel: "Intensity",
                 deleteButton: "Delete last record",
-                lastRecordDeleted: "Last record deleted"
+                lastRecordDeleted: "Last record deleted",
+                goodZoneLabel: "Good (>0.8)",
+                warningZoneLabel: "Satisfactory (0.5-0.8)",
+                badZoneLabel: "Alert (<0.5)"
             },
             he: {
                 title: "ניתוח עוצמת קול עם תיקון רקע",
@@ -580,7 +616,10 @@
                 dateLabel: "תאריך ושעה של המדידות",
                 intensityHistoryLabel: "עוצמה",
                 deleteButton: "מחק רשומה אחרונה",
-                lastRecordDeleted: "הרשומה האחרונה נמחקה"
+                lastRecordDeleted: "הרשומה האחרונה נמחקה",
+                goodZoneLabel: "טוב (>0.8)",
+                warningZoneLabel: "משביע רצון (0.5-0.8)",
+                badZoneLabel: "מדאיג (<0.5)"
             }
         };
 
@@ -616,6 +655,14 @@
             document.getElementById('legend-end').textContent = t.legendEnd;
             document.getElementById('legend-cutoff').textContent = t.legendCutoff;
             deleteLastBtn.textContent = t.deleteButton;
+            
+            // Обновляем легенду зон
+            const zoneLegendItems = document.querySelectorAll('.history-zone-legend > span');
+            if (zoneLegendItems.length >= 3) {
+                zoneLegendItems[0].querySelector('span').textContent = t.goodZoneLabel;
+                zoneLegendItems[1].querySelector('span').textContent = t.warningZoneLabel;
+                zoneLegendItems[2].querySelector('span').textContent = t.badZoneLabel;
+            }
             
             // Обновляем статус, если не идет запись
             if (!isRecording) {
@@ -755,7 +802,7 @@
             }
             
             statusElement.textContent = translations[currentLanguage].analyzingStatus;
-            statusElement.classList.remove('recoring');
+            statusElement.classList.remove('recording');
             
             setTimeout(() => {
                 processAndDrawData();
@@ -816,7 +863,7 @@
             let endIndex = -1;
 
             for (let i = 0; i < integralData.length; i++) {
-                if (integralData[i].y >= targetValue) {
+                if (integralData[i].x * DURATION >= startTime && integralData[i].y >= targetValue) {
                     endIndex = i;
                     break;
                 }
@@ -1142,6 +1189,9 @@
             const historyColor2 = styles.getPropertyValue('--history-color-2').trim();
             const historyColor3 = styles.getPropertyValue('--history-color-3').trim();
             const historyColor4 = styles.getPropertyValue('--history-color-4').trim();
+            const goodZoneColor = styles.getPropertyValue('--good-zone-color').trim();
+            const warningZoneColor = styles.getPropertyValue('--warning-zone-color').trim();
+            const badZoneColor = styles.getPropertyValue('--bad-zone-color').trim();
 
             if (measurementHistory.length === 0) {
                 historySection.style.display = 'none';
@@ -1154,6 +1204,9 @@
             const padding = { top: 40, right: 60, bottom: 80, left: 80 };
             
             historyCtx.clearRect(0, 0, width, height);
+            
+            // Рисуем цветные зоны фона
+            drawBackgroundZones(historyCtx, padding, width, height, goodZoneColor, warningZoneColor, badZoneColor);
             
             // Рисуем сетку
             historyCtx.strokeStyle = '#E0E0E0';
@@ -1281,6 +1334,38 @@
                 
                 historyCtx.stroke();
             });
+        }
+
+        // Функция для рисования цветных зон фона
+        function drawBackgroundZones(ctx, padding, width, height, goodColor, warningColor, badColor) {
+            const graphHeight = height - padding.top - padding.bottom;
+            
+            // Красная зона (< 0.5)
+            ctx.fillStyle = badColor;
+            ctx.fillRect(
+                padding.left, 
+                padding.top + graphHeight * 0.5, 
+                width - padding.left - padding.right, 
+                graphHeight * 0.5
+            );
+            
+            // Желтая зона (0.5-0.8)
+            ctx.fillStyle = warningColor;
+            ctx.fillRect(
+                padding.left, 
+                padding.top + graphHeight * 0.2, 
+                width - padding.left - padding.right, 
+                graphHeight * 0.3
+            );
+            
+            // Зеленая зона (≥ 0.8)
+            ctx.fillStyle = goodColor;
+            ctx.fillRect(
+                padding.left, 
+                padding.top, 
+                width - padding.left - padding.right, 
+                graphHeight * 0.2
+            );
         }
 
         function updateTimer(seconds) {
